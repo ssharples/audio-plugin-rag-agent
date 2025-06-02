@@ -5,7 +5,7 @@ import asyncpg
 from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from .connection import db
-from .models import DocumentChunk, PluginChain, PluginRecommendation
+from .models import DocumentChunk, PluginChain, PluginRecommendation, Plugin
 from ..utils.embeddings import embedding_service
 
 

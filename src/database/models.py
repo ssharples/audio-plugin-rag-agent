@@ -59,8 +59,8 @@ class DocumentChunk(BaseModel):
     """Vector database document chunk"""
     id: Optional[int] = Field(default=None, description="Database ID")
     content: str = Field(description="Text content")
-    embedding: List[float] = Field(description="Vector embedding")
-    metadata: Dict[str, Any] = Field(description="Additional metadata")
+    embedding: List[float] = Field(default_factory=list, description="Vector embedding")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     source: str = Field(description="Source document/URL")
     chunk_index: int = Field(description="Index within source document")
     created_at: Optional[datetime] = Field(default=None, description="Creation timestamp")
