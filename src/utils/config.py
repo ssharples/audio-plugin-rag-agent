@@ -12,12 +12,16 @@ load_dotenv()
 
 class DatabaseConfig(BaseModel):
     """Database configuration"""
-    host: str = Field(default_factory=lambda: os.getenv("DB_HOST", "localhost"))
+    host: str = Field(default_factory=lambda: os.getenv("DB_HOST", "db.aflxjobceqjpjftxwewp.supabase.co"))
     port: int = Field(default_factory=lambda: int(os.getenv("DB_PORT", "5432")))
-    name: str = Field(default_factory=lambda: os.getenv("DB_NAME", "plugin_rag_db"))
+    name: str = Field(default_factory=lambda: os.getenv("DB_NAME", "postgres"))
     user: str = Field(default_factory=lambda: os.getenv("DB_USER", "postgres"))
     password: str = Field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
     url: Optional[str] = Field(default_factory=lambda: os.getenv("DATABASE_URL"))
+    
+    # Supabase specific config
+    supabase_url: str = Field(default_factory=lambda: os.getenv("SUPABASE_URL", "https://aflxjobceqjpjftxwewp.supabase.co"))
+    supabase_anon_key: str = Field(default_factory=lambda: os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbHhqb2JjZXFqcGpmdHh3ZXdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzE5MzgxNDMsImV4cCI6MjA0NzUxNDE0M30.nWVRnDthpXBiQXmfD53hfbxJUeEPFapdYptaQJsJU6M"))
 
     @property
     def connection_url(self) -> str:

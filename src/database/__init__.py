@@ -6,7 +6,7 @@ from .models import (
     Plugin, PluginChain, PluginQuery, PluginRecommendation, 
     RAGResponse, DocumentChunk
 )
-from .vector_store import vector_store, VectorStore
+from .vector_store import vector_store, SupabaseVectorStore
 
 __all__ = [
     "db",
@@ -18,5 +18,5 @@ __all__ = [
     "RAGResponse",
     "DocumentChunk",
     "vector_store",
-    "VectorStore"
+    "SupabaseVectorStore"
 ]

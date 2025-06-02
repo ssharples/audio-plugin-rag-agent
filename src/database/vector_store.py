@@ -1,5 +1,5 @@
 """
-Vector store operations using pgvector
+Vector store operations using pgvector with existing Supabase tables
 """
 import asyncpg
 from typing import List, Optional, Tuple, Dict, Any
@@ -9,20 +9,29 @@ from .models import DocumentChunk, PluginChain, PluginRecommendation, Plugin
 from ..utils.embeddings import embedding_service
 
 
-class VectorStore:
-    """Vector store using PostgreSQL with pgvector"""
+class SupabaseVectorStore:
+    """Vector store using existing Supabase documents and document_metadata tables"""
     
     def __init__(self):
         self.db = db
         self.embedding_service = embedding_service
     
     async def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Check if tables exist and create plugin-related ones if needed"""
         async with self.db.get_connection() as conn:
-            # Create vector extension
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            # Check if documents table exists
+            exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'documents'
+                );
+            """)
             
-            # Create plugin chains table
+            if not exists:
+                raise Exception("Documents table not found in Supabase database")
+            
+            # Create plugin chains table if it doesn't exist
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS plugin_chains (
                     id SERIAL PRIMARY KEY,
@@ -39,29 +48,54 @@ class VectorStore:
                 );
             """)
             
-            # Create document chunks table for general RAG content
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id SERIAL PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    embedding vector(1536),
-                    metadata JSONB,
-                    source VARCHAR(500),
-                    chunk_index INTEGER,
-                    created_at TIMESTAMP DEFAULT NOW()
-                );
-            """)
-            
-            # Create indices for vector similarity search
+            # Create indices for vector similarity search if they don't exist
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS plugin_chains_embedding_idx 
                 ON plugin_chains USING hnsw (embedding vector_cosine_ops);
             """)
             
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS document_chunks_embedding_idx 
-                ON document_chunks USING hnsw (embedding vector_cosine_ops);
+                CREATE INDEX IF NOT EXISTS documents_embedding_idx 
+                ON documents USING hnsw (embedding vector_cosine_ops);
             """)
+    
+    async def search_documents(self, query_text: str, limit: int = 5) -> List[Tuple[DocumentChunk, float]]:
+        """Search for document chunks by similarity using existing documents table"""
+        query_embedding = await self.embedding_service.generate_embedding(query_text)
+        
+        query = """
+            SELECT d.id, d.content, d.metadata, d.embedding, 
+                   dm.title, dm.url, 
+                   1 - (d.embedding <=> $1) as similarity
+            FROM documents d
+            LEFT JOIN document_metadata dm ON d.metadata->>'source' = dm.id
+            WHERE d.embedding IS NOT NULL
+            ORDER BY d.embedding <=> $1
+            LIMIT $2
+        """
+        
+        async with self.db.get_connection() as conn:
+            rows = await conn.fetch(query, query_embedding, limit)
+            
+            results = []
+            for row in rows:
+                # Extract metadata with fallbacks
+                metadata = dict(row['metadata']) if row['metadata'] else {}
+                source = metadata.get('source', row.get('url', 'Unknown'))
+                
+                chunk = DocumentChunk(
+                    id=row['id'],
+                    content=row['content'],
+                    embedding=list(row['embedding']) if row['embedding'] else [],
+                    metadata=metadata,
+                    source=source,
+                    chunk_index=metadata.get('chunk_index', 0),
+                    created_at=None  # Not stored in your current schema
+                )
+                similarity = float(row['similarity'])
+                results.append((chunk, similarity))
+            
+            return results
     
     async def add_plugin_chain(self, chain: PluginChain) -> int:
         """Add a plugin chain to the vector store"""
@@ -150,55 +184,19 @@ class VectorStore:
             
             return results
     
-    async def add_document_chunk(self, chunk: DocumentChunk) -> int:
-        """Add a document chunk to the vector store"""
-        embedding = await self.embedding_service.generate_embedding(chunk.content)
+    async def add_document(self, content: str, metadata: Dict[str, Any], embedding: Optional[List[float]] = None) -> int:
+        """Add a document to the existing documents table"""
+        if embedding is None:
+            embedding = await self.embedding_service.generate_embedding(content)
         
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
-                INSERT INTO document_chunks 
-                (content, embedding, metadata, source, chunk_index)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO documents (content, metadata, embedding)
+                VALUES ($1, $2, $3)
                 RETURNING id
-            """,
-                chunk.content,
-                embedding,
-                chunk.metadata,
-                chunk.source,
-                chunk.chunk_index
-            )
+            """, content, metadata, embedding)
             return row['id']
-    
-    async def search_documents(self, query_text: str, limit: int = 5) -> List[Tuple[DocumentChunk, float]]:
-        """Search for document chunks by similarity"""
-        query_embedding = await self.embedding_service.generate_embedding(query_text)
-        
-        query = """
-            SELECT *, 1 - (embedding <=> $1) as similarity
-            FROM document_chunks
-            ORDER BY embedding <=> $1
-            LIMIT $2
-        """
-        
-        async with self.db.get_connection() as conn:
-            rows = await conn.fetch(query, query_embedding, limit)
-            
-            results = []
-            for row in rows:
-                chunk = DocumentChunk(
-                    id=row['id'],
-                    content=row['content'],
-                    embedding=list(row['embedding']),
-                    metadata=row['metadata'],
-                    source=row['source'],
-                    chunk_index=row['chunk_index'],
-                    created_at=row['created_at']
-                )
-                similarity = float(row['similarity'])
-                results.append((chunk, similarity))
-            
-            return results
 
 
 # Global vector store instance
-vector_store = VectorStore()
+vector_store = SupabaseVectorStore()
